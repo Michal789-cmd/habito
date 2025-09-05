@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Habito – minimalistický sledovač návyků (PWA MVP)</title>
+<link id="manifest-dynamic" rel="manifest" href="#">
+<style>
+  :root{
+    --bg:#0b0f14; --fg:#e8eef5; --muted:#9fb0c3; --card:#121923; --accent:#4da3ff;
+    --ok:#2ecc71; --fail:#ff5c5c; --skip:#b7c3cf; --joker:#f7b733; --warn:#f39c12;
+    --shadow: 0 8px 24px rgba(0,0,0,.25); --radius: 16px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font:16px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial}
+  a{color:var(--accent)}
+  .container{max-width:1000px;margin:0 auto;padding:16px}
+  header{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  .app-title{font-weight:700;font-size:20px;margin-right:auto}
+  .chip{background:var(--card);border-radius:999px;padding:6px 10px;display:inline-flex;align-items:center;gap:8px;box-shadow:var(--shadow)}
+  .bar{height:10px;border-radius:999px;background:#223040;overflow:hidden}
+  .bar>span{display:block;height:100%;background:var(--accent);width:0}
+  .row{display:flex;gap:12px;align-items:center}
+  .panel{background:var(--card);border-radius:var(--radius);padding:14px 14px;box-shadow:var(--shadow)}
+  .controls{display:flex;gap:8px;flex-wrap:wrap}
+  button, .btn{appearance:none;border:0;border-radius:12px;padding:10px 12px;background:#1a2431;color:var(--fg);cursor:pointer;box-shadow:var(--shadow)}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  .btn-ok{background:linear-gradient(180deg,var(--ok),#129b54)}
+  .btn-fail{background:linear-gradient(180deg,var(--fail),#c93a3a)}
+  .btn-joker{background:linear-gradient(180deg,var(--joker),#e09b15)}
+  .btn-skip{background:linear-gradient(180deg,var(--skip),#8fa1b1);color:#0b0f14}
+  .btn-ghost{background:#121923;border:1px solid #2a3b50}
+  .btn-accent{background:linear-gradient(180deg,var(--accent),#2571c9)}
+  .muted{color:var(--muted)}
+  .grid{display:grid;grid-template-columns:1fr;gap:12px}
+  @media(min-width:800px){.grid{grid-template-columns:1.2fr .8fr}}
+  .habit{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center}
+  .habit .name{font-weight:600}
+  .status-buttons{display:flex;gap:6px}
+  .streak{font-variant-numeric:tabular-nums}
+  .date-tabs{display:flex;gap:8px;flex-wrap:wrap}
+  .date-tabs button{padding:8px 10px;border-radius:999px;border:1px solid #2a3b50;background:#111825}
+  .date-tabs button.active{background:var(--accent);color:#031224}
+  .empty{opacity:.8;text-align:center;padding:16px}
+  details summary{cursor:pointer}
+  .modal{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:center;justify-content:center;padding:16px}
+  .modal.open{display:flex}
+  .card{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:16px;max-width:520px;width:100%}
+  label{display:block;margin:.4rem 0 .2rem}
+  input[type="text"]{width:100%;padding:10px;border-radius:10px;border:1px solid #2a3b50;background:#0f1621;color:var(--fg)}
+  .dow{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-top:6px}
+  .dow button{padding:8px 0;border:1px solid #2a3b50;background:#111825;border-radius:10px}
+  .dow button.active{background:#22364d}
+  .pill{border:1px solid #2a3b50;border-radius:999px;padding:4px 8px}
+  .list{display:flex;flex-direction:column;gap:8px}
+  .hr{height:1px;background:#243247;margin:12px 0}
+  .right{margin-left:auto}
+  .warn{color:var(--warn)}
+  .small{font-size:12px}
+  .kpi{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+  .kpi .item{background:#0f1621;padding:10px;border-radius:12px;text-align:center}
+  .kpi .num{font-weight:700;font-size:20px}
+  .locked{opacity:.5}
+  @media print{header,.date-tabs,.controls,.modal{display:none!important}body{background:white;color:black}.panel{box-shadow:none}}
+</style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="app-title">🔥 Habito</div>
+      <div id="motivation" class="muted" style="min-width:220px"></div>
+      <div class="chip" title="XP progress">
+        <span>Level&nbsp;<b id="levelNum">1</b></span>
+        <div style="width:160px" class="bar"><span id="xpBar"></span></div>
+        <span id="xpLabel" class="muted small"></span>
+      </div>
+      <button class="btn-ghost" id="btnStats">📊 Statistiky</button>
+      <button class="btn-accent" id="btnAdd">＋ Návyk</button>
+    </header>
+
+    <div class="hr"></div>
+
+    <section class="panel">
+      <div class="row" style="justify-content:space-between;align-items:center;gap:8px">
+        <div class="date-tabs" id="dateTabs"></div>
+      </div>
+      <div class="grid" style="margin-top:12px">
+        <div>
+          <div id="habitList" class="list"></div>
+          <div id="emptyState" class="empty" hidden>Žádné návyky pro tento den. Přidej nový nebo uprav dny v týdnu.</div>
+        </div>
+        <aside>
+          <div class="kpi">
+            <div class="item"><div class="num" id="kpiPlanned">0</div><div class="muted small">Dnes plánováno</div></div>
+            <div class="item"><div class="num" id="kpiDone">0</div><div class="muted small">Splněno</div></div>
+            <div class="item"><div class="num" id="kpiStreak">0</div><div class="muted small">Nejdelší série</div></div>
+          </div>
+          <div class="hr"></div>
+          <div class="small muted">Stavy: <b style="color:var(--ok)">✅</b> splněno, <b style="color:var(--fail)">✗</b> nesplněno, <b style="color:var(--joker)">🃏</b> žolík (zachová sérii), <b style="color:var(--skip)">⏳</b> dnes nesledováno.</div>
+        </aside>
+      </div>
+    </section>
+
+    <section id="statsPanel" class="panel" style="margin-top:12px" hidden>
+      <h3>📊 Statistiky (aktuální měsíc)</h3>
+      <div id="statsContent" class="list"></div>
+    </section>
+  </div>
+
+  <!-- Modal: Přidat / Upravit návyk -->
+  <div id="modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="card">
+      <div class="row" style="align-items:center;gap:8px">
+        <h3 id="modalTitle" style="margin:0">＋ Nový návyk</h3>
+        <div class="right"></div>
+        <button id="closeModal" class="btn-ghost">✕</button>
+      </div>
+      <label>Název</label>
+      <input id="habitName" type="text" placeholder="např. Mezizubní kartáček" />
+      <label>Dny v týdnu</label>
+      <div id="dow" class="dow"></div>
+      <div class="hr"></div>
+      <details>
+        <summary class="muted">Předlohy (klikni pro výběr)</summary>
+        <div class="list" style="margin-top:8px">
+          <button class="btn-ghost tpl" data-name="Vstávání před 6:30" data-days="1,2,3,4,5,6,0">⏰ Vstávání</button>
+          <button class="btn-ghost tpl" data-name="Studená sprcha" data-days="1,2,3,4,5,6,0">🚿 Studená sprcha</button>
+          <button class="btn-ghost tpl" data-name="Trénink" data-days="1,2,3,4,5,6,0">🏃 Trénink</button>
+          <button class="btn-ghost tpl" data-name="V posteli do 22:30" data-days="1,2,3,4,5,6,0">🛏️ Spánek</button>
+          <button class="btn-ghost tpl" data-name="Mezizubní kartáček" data-days="1,2,3,4,5,6,0">🦷 Mezizubák</button>
+          <button class="btn-ghost tpl" data-name="Méně než 1 h na telefonu" data-days="1,2,3,4,5,6,0">📵 Telefon</button>
+          <button class="btn-ghost tpl" data-name="Více než 8k kroků" data-days="1,2,3,4,5,6,0">👟 Kroků &gt; 8k</button>
+        </div>
+      </details>
+      <div class="hr"></div>
+      <div class="row" style="justify-content:flex-end;gap:8px">
+        <button id="saveHabit" class="btn-accent">Uložit</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+// =====================
+//  STORAGE (OPFS → IDB → localStorage fallback)
+// =====================
+const LS_KEY = 'habito_v1';
+const STORAGE = {
+  mode: 'ls',
+  fs: null, db: null,
+  async init(){
+    // Try OPFS (Origin Private File System)
+    try{
+      if(navigator.storage && navigator.storage.getDirectory){
+        this.fs = await navigator.storage.getDirectory();
+        this.mode = 'opfs';
+        return;
+      }
+    }catch(e){ /* ignore */ }
+    // Try IndexedDB
+    if('indexedDB' in window){
+      this.db = await idbOpen('habito_db','kv');
+      this.mode = 'idb';
+      return;
+    }
+    // Fallback: localStorage
+    this.mode = 'ls';
+  },
+  async read(){
+    try{
+      if(this.mode==='opfs'){
+        const fh = await this.fs.getFileHandle('habito_state.json', {create:true});
+        const file = await fh.getFile();
+        if(!file || file.size===0) return null;
+        const text = await file.text();
+        return JSON.parse(text);
+      }
+      if(this.mode==='idb'){
+        return await idbGet(this.db, 'state');
+      }
+      // ls
+      const raw = localStorage.getItem(LS_KEY); return raw? JSON.parse(raw) : null;
+    }catch(e){ console.warn('read storage failed', e); return null; }
+  },
+  async write(obj){
+    try{
+      if(this.mode==='opfs'){
+        const fh = await this.fs.getFileHandle('habito_state.json', {create:true});
+        const w = await fh.createWritable();
+        await w.write(JSON.stringify(obj));
+        await w.close();
+        return;
+      }
+      if(this.mode==='idb'){
+        await idbSet(this.db, 'state', obj); return;
+      }
+      localStorage.setItem(LS_KEY, JSON.stringify(obj));
+    }catch(e){ console.warn('write storage failed', e); }
+  }
+};
+
+// Minimal IndexedDB helpers
+function idbOpen(name, store){
+  return new Promise((resolve,reject)=>{
+    const req = indexedDB.open(name,1);
+    req.onupgradeneeded = ()=>{ req.result.createObjectStore(store); };
+    req.onsuccess = ()=> resolve(req.result);
+    req.onerror = ()=> reject(req.error);
+  });
+}
+function idbGet(db, key){
+  return new Promise((resolve,reject)=>{
+    const tx = db.transaction('kv','readonly');
+    const st = tx.objectStore('kv').get(key);
+    st.onsuccess = ()=> resolve(st.result||null);
+    st.onerror = ()=> reject(st.error);
+  });
+}
+function idbSet(db, key, val){
+  return new Promise((resolve,reject)=>{
+    const tx = db.transaction('kv','readwrite');
+    tx.objectStore('kv').put(val, key);
+    tx.oncomplete = ()=> resolve();
+    tx.onerror = ()=> reject(tx.error);
+  });
+}
+
+// =====================
+//  APP STATE
+// =====================
+const DEFAULTS = {
+  settings: { baseJokersPerMonth: 4, skipLimitPerWeek: 2, jokerCooldownDays: 7, backfillDays: 5 },
+  purchases: { themesUnlocked: 0, jokersByMonth: {} }, // kept for compatibility
+  habits: [],
+  entries: {},   // { dateKey: { habitId: {status, reason?, ts} } }
+  firstRunDone: false,
+};
+let state = structuredClone(DEFAULTS);
+
+function uid(){ return Math.random().toString(36).slice(2,9); }
+function today(){ const d = new Date(); d.setHours(0,0,0,0); return d; }
+function addDays(d, n){ const x = new Date(d); x.setDate(x.getDate()+n); x.setHours(0,0,0,0); return x; }
+function ymd(d){ const x = new Date(d); x.setHours(0,0,0,0); return new Date(x.getTime()-x.getTimezoneOffset()*60000).toISOString().slice(0,10); }
+function parseYMD(s){ const [Y,M,D]=s.split('-').map(Number); const d=new Date(Y,M-1,D); d.setHours(0,0,0,0); return d; }
+function dowIndex(d){ return d.getDay(); /* 0=Ne,1=Po... */ }
+function monthKey(d){ return ymd(d).slice(0,7); }
+function weekKey(d){
+  const tmp = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const dayNr = (tmp.getUTCDay()+6)%7; tmp.setUTCDate(tmp.getUTCDate()-dayNr+3);
+  const year = tmp.getUTCFullYear(); const jan4 = new Date(Date.UTC(year,0,4));
+  const jan4Day = (jan4.getUTCDay()+6)%7; const week = 1 + Math.round(((tmp - jan4) / 86400000 - 3 + jan4Day)/7);
+  return `${year}-W${String(week).padStart(2,'0')}`;
+}
+
+// XP + levels
+function xpForStatus(status){ if(status==='DONE') return 10; if(status==='JOKER') return 4; return 0; }
+function totalXPEarned(){
+  let xp = 0; const dates = Object.keys(state.entries);
+  for(const dk of dates){ const dayEntries = state.entries[dk]; for(const hid in dayEntries){ xp += xpForStatus(dayEntries[hid].status); }
+    const d = parseYMD(dk); const planned = plannedHabitsForDate(d);
+    if(planned.length>0){ let allOk = true; for(const h of planned){ const st = dayEntries?.[h.id]?.status; if(st!=='DONE' && st!=='JOKER'){ allOk=false; break; } }
+      if(allOk) xp += 10; }
+  }
+  return xp;
+}
+function levelFromXP(xp){ let L=1; while(100*L*(L-1) <= xp) L++; return L-1; }
+function xpIntoLevel(xp){ const L = levelFromXP(xp); const base = 100*L*(L-1); const next = 100*(L+1)*L; return {L, cur: xp-base, need: next-base}; }
+
+// Habits
+function plannedHabitsForDate(d){ const di = dowIndex(d); return state.habits.filter(h => (h.days?.length? h.days.includes(di) : true)); }
+function getEntry(hid, d){ const key = ymd(d); return state.entries?.[key]?.[hid] || null; }
+
+async function save(){ await STORAGE.write(state); }
+
+function setEntry(hid, d, status, opts={}){
+  const today0 = today(); const minDate = addDays(today0, -state.settings.backfillDays);
+  if(d < minDate){ alert(`Den je uzamčen (více než ${state.settings.backfillDays} dní zpět).`); return; }
+  const planned = plannedHabitsForDate(d).some(h=>h.id===hid); if(!planned && !confirm('Tento návyk dnes není plánovaný. Přesto zapsat?')) return;
+  if(status==='SKIP'){
+    const wk = weekKey(d); const count = countStatusForHabitWeek(hid, wk, 'SKIP');
+    if(count >= state.settings.skipLimitPerWeek){ alert(`Limit ⏳ vyčerpán pro tento týden (max ${state.settings.skipLimitPerWeek}/návyk).`); return; }
+  }
+  if(status==='JOKER'){
+    const mk = monthKey(d); const usedThisMonth = countJokersInMonth(mk); const purchased = 0; // no shop
+    const allowance = state.settings.baseJokersPerMonth + purchased;
+    if(usedThisMonth >= allowance){ alert('Došly měsíční žolíky.'); return; }
+    const lastJ = lastJokerDateForHabit(hid); if(lastJ){ const diffDays = Math.floor((d - lastJ)/86400000); if(diffDays < state.settings.jokerCooldownDays){ alert(`Žolík u stejného návyku lze znovu až za ${state.settings.jokerCooldownDays - diffDays} dní.`); return; } }
+  }
+  const key = ymd(d); state.entries[key] = state.entries[key] || {}; state.entries[key][hid] = { status, ts: Date.now(), reason: opts.reason||null };
+  save(); renderAll();
+}
+
+function countStatusForHabitWeek(hid, wkKey, status){ let n=0; for(const dk in state.entries){ const d = parseYMD(dk); if(weekKey(d)===wkKey){ if(state.entries[dk]?.[hid]?.status===status) n++; } } return n; }
+function countJokersInMonth(mk){ let n=0; for(const dk in state.entries){ if(dk.slice(0,7)===mk){ const obj = state.entries[dk]; for(const hid in obj){ if(obj[hid].status==='JOKER') n++; } } } return n; }
+function lastJokerDateForHabit(hid){ let last=null; for(const dk in state.entries){ const e = state.entries[dk]?.[hid]; if(e?.status==='JOKER'){ const d = parseYMD(dk); if(!last || d>last) last=d; } } return last; }
+
+// Streaks & stats
+function calcStreak(h){ let d = today(); let streak=0; for(let i=0;i<365;i++){ const planned = plannedHabitsForDate(d).some(x=>x.id===h.id); if(planned){ const e = getEntry(h.id,d); if(e){ if(e.status==='DONE' || e.status==='JOKER'){ streak++; } else if(e.status==='SKIP'){} else { break; } } else { break; } } d = addDays(d,-1);} return streak; }
+function monthSuccess(h){ const now = today(); const y = now.getFullYear(), m = now.getMonth(); let planned=0, ok=0; for(let day=1; day<=31; day++){ const d = new Date(y,m,day); d.setHours(0,0,0,0); if(d.getMonth()!==m) break; const isPlanned = plannedHabitsForDate(d).some(x=>x.id===h.id); if(!isPlanned) continue; const e = getEntry(h.id,d); if(e && e.status==='SKIP') continue; planned++; if(e && (e.status==='DONE' || e.status==='JOKER')) ok++; } const perc = planned>0? Math.round((ok/planned)*100):0; return {planned, ok, perc}; }
+
+// UI
+let selectedDate = today();
+
+function renderDateTabs(){ const wrap = document.getElementById('dateTabs'); wrap.innerHTML=''; for(let i=0;i<6;i++){ const d = addDays(today(), -i); const btn = document.createElement('button'); if(i<=2){ const names = ['Dnes','Včera','Předevčírem']; btn.textContent = names[i] + ` (${d.toLocaleDateString('cs-CZ')})`; } else { btn.textContent = d.toLocaleDateString('cs-CZ'); } btn.className = (ymd(d)===ymd(selectedDate)) ? 'active' : ''; btn.addEventListener('click', ()=>{ selectedDate = d; renderAll(); }); wrap.appendChild(btn);} }
+
+function renderHabits(){ const list = document.getElementById('habitList'); list.innerHTML=''; const planned = plannedHabitsForDate(selectedDate); document.getElementById('emptyState').hidden = planned.length>0; document.getElementById('kpiPlanned').textContent = planned.length; let doneCount=0, bestStreak=0; planned.forEach(h=>{ const row = document.createElement('div'); row.className='habit panel'; const left = document.createElement('div'); const name = document.createElement('div'); name.className='name'; name.textContent = h.name; const sub = document.createElement('div'); sub.className='muted small'; const st = getEntry(h.id, selectedDate)?.status || '-'; const streak = calcStreak(h); bestStreak = Math.max(bestStreak, streak); if(st==='DONE' || st==='JOKER') doneCount++; sub.innerHTML = `Série: <b class="streak">${streak}</b> • Dnes: ${stIcon(st)} ${stLabel(st)}`; left.appendChild(name); left.appendChild(sub); const right = document.createElement('div'); right.className='status-buttons'; const lock = addDays(today(), -state.settings.backfillDays) > selectedDate; right.appendChild(statusBtn('✅','btn-ok',()=> setEntry(h.id, selectedDate, 'DONE'))); right.appendChild(statusBtn('✗','btn-fail',()=> setEntry(h.id, selectedDate, 'FAIL'))); const bJ = statusBtn('🃏','btn-joker',()=> setEntry(h.id, selectedDate, 'JOKER')); const bS = statusBtn('⏳','btn-skip',()=> chooseSkip(h.id)); if(lock){ right.classList.add('locked'); [...right.children].forEach(b=>b.disabled=true); } const lastJ = lastJokerDateForHabit(h.id); if(lastJ){ const diffDays = Math.floor((selectedDate - lastJ)/86400000); if(diffDays < state.settings.jokerCooldownDays) bJ.title = `Žolík u tohoto návyku až za ${state.settings.jokerCooldownDays - diffDays} dní.`; } const wk = weekKey(selectedDate); const skUsed = countStatusForHabitWeek(h.id, wk, 'SKIP'); bS.title = `⏳ použito v týdnu: ${skUsed}/${state.settings.skipLimitPerWeek}`; right.appendChild(bJ); right.appendChild(bS); row.appendChild(left); row.appendChild(right); list.appendChild(row); }); document.getElementById('kpiDone').textContent = doneCount; document.getElementById('kpiStreak').textContent = bestStreak; }
+
+function stIcon(s){ return s==='DONE'? '✅' : s==='FAIL'? '✗' : s==='JOKER'? '🃏' : s==='SKIP'? '⏳' : '—'; }
+function stLabel(s){ return s==='DONE'? 'Splněno' : s==='FAIL'? 'Nesplněno' : s==='JOKER'? 'Žolík' : s==='SKIP'? 'Nesledováno' : '—'; }
+function statusBtn(txt, cls, onClick){ const b = document.createElement('button'); b.textContent = txt; b.className = cls; b.onclick = onClick; return b; }
+
+function chooseSkip(hid){ let reason = prompt('Důvod ⏳ (nemoc / cesta / práce / jiné):','nemoc'); if(reason === null) reason = 'jiné'; reason = String(reason).trim(); if(!reason) reason = 'jiné'; setEntry(hid, selectedDate, 'SKIP', {reason}); }
+
+function renderXP(){ const {L, cur, need} = xpIntoLevel(totalXPEarned()); document.getElementById('levelNum').textContent = L; const pct = Math.max(0, Math.min(100, Math.round((cur/need)*100))); const bar = document.getElementById('xpBar'); bar.style.width = pct + '%'; document.getElementById('xpLabel').textContent = `${cur}/${need} XP`; }
+
+function renderStats(){ const box = document.getElementById('statsContent'); box.innerHTML=''; if(state.habits.length===0){ box.innerHTML='<div class="muted">Žádné návyky.</div>'; return; } state.habits.forEach(h=>{ const ms = monthSuccess(h); const streak = calcStreak(h); const div = document.createElement('div'); div.className='row'; div.style.justifyContent='space-between'; div.innerHTML = `<div><b>${h.name}</b><div class="small muted">${ms.ok}/${ms.planned} • ${ms.perc}% • série ${streak}</div></div>`; box.appendChild(div); }); }
+
+function renderMotivation(){ const msgs = ['Jeden krok denně stačí. 💪','Udrž sérii — žolíky šetři! 🃏','Dnes 100 %? Získej +10 XP! ⭐']; document.getElementById('motivation').textContent = msgs[Math.floor(Math.random()*msgs.length)]; }
+
+function renderAll(){ renderDateTabs(); renderHabits(); renderXP(); if(!document.getElementById('statsPanel').hidden) renderStats(); }
+
+// ======== Add/Edit Habit Modal ========
+let editingHabitId = null; const modal = document.getElementById('modal'); const habitName = document.getElementById('habitName'); const dowWrap = document.getElementById('dow'); const dowNames = ['Ne','Po','Út','St','Čt','Pá','So'];
+function openModal(h){ editingHabitId = h?.id || null; modal.classList.add('open'); habitName.value = h?.name || ''; renderDOW(h?.days || [1,2,3,4,5,6,0]); document.getElementById('modalTitle').textContent = editingHabitId? 'Upravit návyk' : '＋ Nový návyk'; }
+function closeModal(){ modal.classList.remove('open'); }
+function renderDOW(active){ dowWrap.innerHTML=''; for(let i=0;i<7;i++){ const b = document.createElement('button'); b.textContent = dowNames[i]; b.className = active.includes(i)? 'active' : ''; b.addEventListener('click', (e)=>{ e.preventDefault(); b.classList.toggle('active'); }); dowWrap.appendChild(b);} }
+function getDOWSelection(){ return [...dowWrap.children].map((b,i)=> b.classList.contains('active')? i : -1).filter(x=>x>=0); }
+
+document.getElementById('btnAdd').onclick=()=>openModal();
+document.getElementById('closeModal').onclick=closeModal;
+document.getElementById('saveHabit').onclick=()=>{ const name = habitName.value.trim(); const days = getDOWSelection(); if(!name){ alert('Zadej název návyku.'); return; } if(days.length===0 && !confirm('Návyk nebude mít plánované dny. Pokračovat?')) return; if(editingHabitId){ const h = state.habits.find(x=>x.id===editingHabitId); if(h){ h.name=name; h.days=days; } } else { state.habits.push({ id: uid(), name, days, createdAt: Date.now() }); } save(); closeModal(); renderAll(); };
+
+// Templates (přednastavené)
+for(const btn of document.querySelectorAll('.tpl')){ btn.addEventListener('click', ()=>{ habitName.value = btn.dataset.name; const days = btn.dataset.days.split(',').map(x=>+x); renderDOW(days); }); }
+
+// Stats toggle
+ document.getElementById('btnStats').onclick=()=>{ const p = document.getElementById('statsPanel'); p.hidden = !p.hidden; if(!p.hidden) renderStats(); };
+
+// ======== Seed defaults ========
+function seedIfFirstRun(){
+  if(!state.firstRunDone || (state.habits||[]).length===0){
+    state.habits = [
+      {id: uid(), name:'Vstávání před 6:30', days:[1,2,3,4,5,6,0], createdAt:Date.now()},
+      {id: uid(), name:'Studená sprcha', days:[1,2,3,4,5,6,0], createdAt:Date.now()},
+      {id: uid(), name:'Trénink', days:[1,2,3,4,5,6,0], createdAt:Date.now()},
+      {id: uid(), name:'V posteli do 22:30', days:[1,2,3,4,5,6,0], createdAt:Date.now()},
+      {id: uid(), name:'Mezizubní kartáček', days:[1,2,3,4,5,6,0], createdAt:Date.now()},
+      {id: uid(), name:'Méně než 1 h na telefonu', days:[1,2,3,4,5,6,0], createdAt:Date.now()},
+      {id: uid(), name:'Více než 8k kroků', days:[1,2,3,4,5,6,0], createdAt:Date.now()},
+    ];
+    state.firstRunDone = true; save();
+  }
+}
+
+// =====================
+//  PWA (manifest + service worker) — single-file approach
+// =====================
+async function buildIconsAndManifest(){
+  // draw simple emoji icon to canvas → PNG blobs → object URLs
+  async function makeIcon(size){
+    const c = document.createElement('canvas'); c.width=c.height=size; const ctx=c.getContext('2d');
+    // bg
+    const g = ctx.createLinearGradient(0,0,size,size); g.addColorStop(0,'#0ea5e9'); g.addColorStop(1,'#2563eb'); ctx.fillStyle=g; ctx.fillRect(0,0,size,size);
+    // glyph
+    ctx.font = Math.round(size*0.6)+'px system-ui,Segoe UI Emoji,Apple Color Emoji';
+    ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillStyle='white';
+    ctx.fillText('🔥', size/2, size/2 + size*0.06);
+    return await new Promise(res=> c.toBlob(b=> res(URL.createObjectURL(b)), 'image/png'));
+  }
+  const icon192 = await makeIcon(192);
+  const icon512 = await makeIcon(512);
+  const manifest = {
+    name: "Habito",
+    short_name: "Habito",
+    start_url: ".",
+    display: "standalone",
+    background_color: "#0b0f14",
+    theme_color: "#4da3ff",
+    icons: [
+      { src: icon192, sizes: "192x192", type: "image/png" },
+      { src: icon512, sizes: "512x512", type: "image/png" }
+    ]
+  };
+  const blob = new Blob([JSON.stringify(manifest)], {type:'application/manifest+json'});
+  const url = URL.createObjectURL(blob);
+  const link = document.getElementById('manifest-dynamic');
+  link.href = url;
+}
+
+async function registerSW(){
+  if(!('serviceWorker' in navigator)) return;
+  if(location.protocol!=='https:' && location.hostname!=='localhost') return; // SW needs https or localhost
+  const swCode = `
+  const CACHE = 'habito-cache-v1';
+  self.addEventListener('install', e=>{
+    e.waitUntil((async()=>{
+      const c = await caches.open(CACHE);
+      await c.addAll(['./']);
+      self.skipWaiting();
+    })());
+  });
+  self.addEventListener('activate', e=>{
+    e.waitUntil((async()=>{
+      const keys = await caches.keys();
+      await Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)));
+      self.clients.claim();
+    })());
+  });
+  self.addEventListener('fetch', e=>{
+    const req = e.request;
+    e.respondWith((async()=>{
+      const cached = await caches.match(req);
+      if(cached) return cached;
+      try{ const net = await fetch(req); return net; } catch(err){ return caches.match('./'); }
+    })());
+  });`;
+  const blob = new Blob([swCode], {type:'text/javascript'});
+  const url = URL.createObjectURL(blob);
+  try{ await navigator.serviceWorker.register(url, {scope: './'}); } catch(e){ console.warn('SW reg failed', e); }
+}
+
+// =====================
+//  BOOT
+// =====================
+(async function init(){
+  await STORAGE.init();
+  const loaded = await STORAGE.read();
+  if(loaded){ state = Object.assign(structuredClone(DEFAULTS), loaded); }
+  seedIfFirstRun();
+  renderMotivation();
+  renderAll();
+  // Build manifest & register SW for installability/offline
+  await buildIconsAndManifest();
+  await registerSW();
+})();
+</script>
+</body>
+</html>
